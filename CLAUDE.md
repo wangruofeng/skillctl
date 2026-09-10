@@ -32,6 +32,7 @@ skillctl/
 
 ## 常用命令
 
-- **安装全局 alias**: `bash skills/rf-skill-init/scripts/install.sh` / `bash skills/rf-skill-sync/scripts/install.sh`
+- **安装全局 alias**: `bash skills/rf-skill-init/scripts/install.sh` / `bash skills/rf-skill-sync/scripts/install.sh` / `bash skills/rf-skill-doctor/scripts/install.sh`
 - **初始化新项目**: `skills-init` 或 `/rf-skill-init`
 - **同步项目 Skill**: `skills-sync` 或 `/rf-skill-sync`
+- **诊断 skill 健康**: `skills-doctor` 或 `/rf-skill-doctor`

@@ -14,6 +14,21 @@ Diagnose the local **single-store, multi-consumer** skill model. All paths are a
 
 Project directories (`.claude/skills` inside a git repo) are a *different* model — but the default run diagnoses both: the global store first, then the cwd's project skills appended as a second section (see [Project mode](#project-mode---project)).
 
+## 安装为全局命令（可选）
+
+一键安装 `skills-doctor` 命令（alias），之后可在任意目录直接诊断：
+
+> 下面脚本路径中的 `{baseDir}` 指本 SKILL.md 所在目录（即本 skill 目录），运行时替换为实际路径。
+
+```bash
+bash {baseDir}/scripts/install.sh              # 安装/更新
+bash {baseDir}/scripts/install.sh --uninstall  # 卸载
+```
+
+- 存在 `~/.zshrc`（或登录 shell 为 zsh）→ 写入 `~/.zshrc`；否则写入 `~/.bash_profile`
+- 重复执行幂等：自动更新指向路径，不产生重复条目
+- 安装后执行 `source` 配置文件（或新开终端）生效
+
 ## Run
 
 ```bash

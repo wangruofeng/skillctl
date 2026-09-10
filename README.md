@@ -87,7 +87,7 @@ cd skillctl
 
 ### 3. 安装全局 CLI 命令（可选）
 
-方便在终端直接调用 `skills-init` / `skills-sync`：
+方便在终端直接调用 `skills-init` / `skills-sync` / `skills-doctor`：
 
 ```bash
 # 安装同步工具 → skills-sync
@@ -95,6 +95,9 @@ bash skills/rf-skill-sync/scripts/install.sh
 
 # 安装初始化工具 → skills-init
 bash skills/rf-skill-init/scripts/install.sh
+
+# 安装诊断工具 → skills-doctor
+bash skills/rf-skill-doctor/scripts/install.sh
 ```
 
 安装后执行 `source ~/.zshrc`（或新开终端）即可使用。卸载加 `--uninstall`。
