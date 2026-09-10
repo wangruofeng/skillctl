@@ -1,0 +1,16 @@
+{
+  "name": "rf-skill-installer",
+  "version": "1.2.1",
+  "owner": "wangruofeng",
+  "updated_at": "2026-08-24",
+  "review_cadence": "monthly",
+  "status": "active",
+  "maturity_tier": "production",
+  "lifecycle_stage": "production",
+  "description": "输入 GitHub URL 生成 npx skills add 安装命令",
+  "boundary": {
+    "owns": "GitHub skill 仓库 URL → npx skills add 命令生成",
+    "excludes": ["实际执行安装命令", "skill 开发"],
+    "outputs": ["安装命令（供用户复制执行）"]
+  }
+}

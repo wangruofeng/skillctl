@@ -1,0 +1,31 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+.eggs/
+dist/
+build/
+.venv/
+venv/
+
+# OS / editor
+.DS_Store
+Thumbs.db
+*.swp
+*~
+.idea/
+.vscode/
+
+# Local / secrets
+.env
+.env.*
+*.pem
+*.key
+.claude/settings.local.json
+
+# 非源头 agent skill 镜像（init/sync 生成的消费端不入库；本仓事实源为 skills/）
+.codex/
+.cursor/
+.zcode/
+.agents/

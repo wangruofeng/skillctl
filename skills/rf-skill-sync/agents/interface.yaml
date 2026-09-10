@@ -1,0 +1,25 @@
+name: rf-skill-sync
+description: 通过软链接将项目 .claude/skills 同步到其他 agent 目录（.codex/skills 等），自动保持同步（用户级全局 skill）
+
+inputs:
+  command: 可选，命令行参数（如 --dry-run, 目标目录列表）
+
+outputs:
+  summary: 同步摘要（新增/删除/跳过的数量）
+  targets: 实际同步的目标目录列表
+  changes: 每个目标目录下的具体变更
+
+behavior:
+  - 自动扫描 .xxx/skills 目录作为同步目标
+  - 使用相对路径创建软链接，保证跨机器可用
+  - 自动清理失效/断连的软链接
+  - 支持预览模式（--dry-run）
+  - 支持手动指定多个目标目录
+  - 在 git 仓库中自动定位到项目根目录
+
+exclusions:
+  - 不修改源目录 .claude/skills/ 下的任何文件
+  - 不处理非软链接的真实目录（避免覆盖用户数据）
+  - 不同步自身（rf-skill-sync）
+  - 不执行文件拷贝，只创建软链接
+  - 不修改 .gitignore，用户需自行配置
