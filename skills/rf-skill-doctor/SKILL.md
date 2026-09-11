@@ -1,7 +1,7 @@
 ---
 name: rf-skill-doctor
-description: "诊断本地 skill 管理健康（全局仓与项目 .claude/skills）：软链接完整性、锁文件一致性、SKILL.md 规范检查。用于 skill 健康检查/诊断、排查 skill 没生效/没同步/找不到。用法、参数与修复见正文。"
-version: 1.0.1
+description: "诊断本地 skill 管理健康（全局仓与项目 .claude/skills）：软链接完整性、锁文件一致性、SKILL.md 规范检查、skills-link --force 备份检测与清理（--clean-backups）。用于 skill 健康检查/诊断、排查 skill 没生效/没同步/找不到、删除 .bak 备份。用法、参数与修复见正文。"
+version: 1.1.0
 ---
 
 # Skill Doctor
@@ -35,6 +35,7 @@ bash {baseDir}/scripts/install.sh --uninstall  # 卸载
 python3 scripts/skill_doctor.py            # global store + auto project check (cwd)
 python3 scripts/skill_doctor.py --json     # machine-readable JSON
 python3 scripts/skill_doctor.py --fix      # relink broken consumer symlinks -> store
+python3 scripts/skill_doctor.py --clean-backups  # 删除 skills-link --force 备份
 
 # SKILL.md 规范检查（必填 name / description / version）
 python3 scripts/check_skill_spec.py        # 自动发现 ./skills
@@ -61,6 +62,7 @@ When invoked as a skill, run `scripts/skill_doctor.py` with no arguments first �
    - **missing/stale** = tracked by the manager but no folder on disk
 5. **Per-skill validity** — each skill folder has a `SKILL.md` whose frontmatter parses and has non-empty `name` (hyphen-case) and `description`; `version` is optional (shown when present, never fails/warns if absent). `name` should match the directory name. Also flags non-skill junk entries (dotfile metadata like `.DS_Store` / manifests are ignored). For a stricter lint that **requires** `version`, use `scripts/check_skill_spec.py`.
 6. **Symlinked skill sources** — skill dirs inside the scanned dir that are themselves symlinks (reverse-link pattern, e.g. source lives in a separate repo). Healthy links pass and are surfaced; dangling ones fail. This is how a "real dir" store turns out not to be fully self-contained.
+7. **force backups** — leftover `*.bak-<14-digit timestamp>` entries created by `skills-link --force` (dir or file). WARN when found: they hold a stale copy and, because they contain a `SKILL.md`, agents load them as duplicate skills (they are excluded from the skill count / SKILL.md checks). Clean up with `--clean-backups`, which only deletes a backup whose same-named skill currently exists; if the name is gone the backup may be the only copy, so it is skipped with guidance.
 
 ## Project mode (--project)
 
@@ -92,9 +94,11 @@ Common interpretations:
 - **duplicate warnings** (project sections) mean the same skill is maintained in two places; keep one and delete or symlink the other before the copies drift further.
 - In a **default run with two sections**, findings and exit code are combined — the final tally is the sum of both scopes, and the exit code is the worst of them.
 
-## Repairs (--fix)
+## Repairs (--fix) and cleanup (--clean-backups)
 
 `--fix` performs only the **safe, deterministic** repair: recreate a consumer symlink that is missing, dangling, or pointing elsewhere so it targets the store. It **never** deletes a real directory (it may hold real skills) — it prints guidance instead. After `--fix`, re-run without the flag to confirm a clean report. In project mode there are no consumers, so `--fix` is a no-op.
+
+`--clean-backups` removes `skills-link --force` backups (`<name>.bak-<timestamp>`, user store and project `.claude/skills` alike). A backup is deleted only when the same-named skill exists at the same level (the link has taken over, the backup is obsolete); otherwise it is kept as the possible only copy and reported for manual handling.
 
 ## Overrides
 

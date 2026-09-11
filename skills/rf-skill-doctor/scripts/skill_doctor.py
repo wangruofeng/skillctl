@@ -137,6 +137,10 @@ def describe(path: Path) -> dict:
     return d
 
 
+# skills-link --force 的备份命名：<skill名>.bak-<YYYYMMDDHHMMSS>（目录或文件）
+_BAK_RE = re.compile(r"^(.+)\.bak-\d{14}$")
+
+
 def disk_skills(store: Path) -> tuple[list[Path], list[str]]:
     """A skill = a direct subdir of the store containing SKILL.md. Returns (skills, junk).
     Dotfile entries (.DS_Store, *.json manifests) are metadata, not junk."""
@@ -149,11 +153,25 @@ def disk_skills(store: Path) -> tuple[list[Path], list[str]]:
     for e in entries:
         if e.name.startswith("."):
             continue
+        if _BAK_RE.match(e.name):
+            continue  # skills-link --force 备份，含 SKILL.md 但不是 skill，由 backups 检查处理
         if e.is_dir() and (e / "SKILL.md").exists():
             skills.append(e)
         else:
             junk.append(e.name)
     return skills, junk
+
+
+def find_backups(d: Path) -> list[Path]:
+    """rf-skill-link --force 产生的备份条目（*.bak-<14 位时间戳>，目录或文件）。"""
+    out: list[Path] = []
+    try:
+        for e in sorted(d.iterdir()):
+            if not e.name.startswith(".") and _BAK_RE.match(e.name):
+                out.append(e)
+    except OSError:
+        pass
+    return out
 
 
 _FRONT_RE = re.compile(r"^---\s*\n(.*?)\n---\s*(?:\n|$)", re.DOTALL)
@@ -275,6 +293,54 @@ def drift_summary(a: Path, b: Path, label_a: str, label_b: str) -> str:
         detail.append(f"仅存在于{label_b}：" + _trunc(only_b, 6))
     return (f"{len(differ)} 个文件内容不同，{len(only_a)} 个仅存在于{label_a}，"
             f"{len(only_b)} 个仅存在于{label_b} —— 请合并为单一来源 | " + "；".join(detail))
+
+
+def check_backups(d: Path, report: Report) -> None:
+    """skills-link --force 残留备份：占空间且会被 agent 当作重复 skill 加载。"""
+    baks = find_backups(d)
+    if not baks:
+        return
+    names = [b.name for b in baks]
+    report.add("WARN", "backups",
+               f"发现 {len(baks)} 个 skills-link --force 备份（*.bak-<时间戳>），"
+               "会被 agent 识别为重复 skill",
+               _trunc(names) + " | 确认链接内容无误后可清理"
+               "（--clean-backups：同名 skill 已存在的备份直接删除，不存在的跳过以防误删唯一副本）")
+
+
+def clean_backups(d: Path, report: Report) -> None:
+    """删除 skills-link --force 备份。同名 skill 已就位才删；否则备份可能是
+    唯一副本，跳过并提示，交由用户决定。"""
+    if not d.is_dir():
+        report.add("WARN", "backups", f"--clean-backups 已跳过：目录不存在或不可读：{d}")
+        return
+    baks = find_backups(d)
+    if not baks:
+        report.add("PASS", "backups", "无 skills-link --force 备份需要清理")
+        return
+    removed = skipped = failed = 0
+    for b in baks:
+        original = _BAK_RE.match(b.name).group(1)
+        if not (d / original).exists():
+            report.add("WARN", "backups",
+                       f"{b.name}：同名 skill '{original}' 不存在，备份可能是唯一副本，已跳过",
+                       "确认不需要恢复后，可手动删除该备份")
+            skipped += 1
+            continue
+        try:
+            if b.is_dir() and not b.is_symlink():
+                shutil.rmtree(b)
+            else:
+                b.unlink()
+            report.add("PASS", "backups", f"{b.name}：已删除（同名 skill '{original}' 正常）")
+            removed += 1
+        except OSError as e:
+            report.add("FAIL", "backups", f"{b.name}：删除失败：{e}")
+            failed += 1
+    summary_level = "FAIL" if failed else ("WARN" if skipped else "PASS")
+    report.add(summary_level, "backups",
+               f"--clean-backups 汇总：已删除 {removed} 个，跳过 {skipped} 个"
+               + (f"，失败 {failed} 个" if failed else ""))
 
 
 def check_internal_links(store: Path, report: Report) -> None:
@@ -651,6 +717,10 @@ def run(store: Path, consumers: list[Path], lock: Path, report: Report,
             report.add("WARN", "junk", f"store 中有 {len(junk)} 个非 skill 条目（缺少 SKILL.md）",
                        _trunc(junk))
 
+    # 5b. skills-link --force backups (both modes)
+    if sinfo["exists"] and not sinfo["is_link"]:
+        check_backups(store, report)
+
     # 6. symlinked skill sources (both modes)
     if sinfo["exists"] and not sinfo["is_link"]:
         check_internal_links(store, report)
@@ -701,7 +771,7 @@ def apply_fix(store: Path, consumers: list[Path], report: Report) -> None:
 
 # ----------------------------- rendering -----------------------------
 ORDER = ["store", "symlink", "consistency", "lock", "reconcile", "skill-md", "junk",
-         "links", "duplicate", "sot", "fix"]
+         "backups", "links", "duplicate", "sot", "fix"]
 
 # 只影响人读的排版；JSON 的 check 字段仍是英文 slug
 CHECK_LABEL = {
@@ -712,6 +782,7 @@ CHECK_LABEL = {
     "reconcile": "对账",
     "skill-md": "SKILL.md",
     "junk": "非 skill 条目",
+    "backups": "force 备份",
     "links": "反向链接",
     "duplicate": "重名检查",
     "sot": "单一事实源",
@@ -946,6 +1017,9 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--json", action="store_true", dest="as_json", help="输出机器可读的 JSON")
     p.add_argument("--fix", action="store_true",
                    help="重建损坏或指向错误的消费端软链接，使其指向 store")
+    p.add_argument("--clean-backups", action="store_true", dest="clean_backups",
+                   help="删除 skills-link --force 产生的 *.bak-<时间戳> 备份"
+                        "（同名 skill 已存在才删，否则视为唯一副本跳过）")
     return p
 
 
@@ -963,6 +1037,8 @@ def main(argv=None) -> int:
             # 项目模式没有消费端软链接，--fix 无可修复对象（SKILL.md：no-op）；
             # 不调用 apply_fix，避免对不存在的 .claude/skills 误报 FAIL
             report.add("PASS", "fix", "项目模式下无消费端软链接，--fix 无操作")
+        if args.clean_backups:
+            clean_backups(store, report)
         model = run(store, consumers, lock, report,
                     project_root=project_root, cross_store=cross_store)
         sections.append((model, report, f"项目（{_short(str(project_root))}）"))
@@ -976,6 +1052,8 @@ def main(argv=None) -> int:
         report = Report()
         if args.fix:
             apply_fix(store, consumers, report)
+        if args.clean_backups:
+            clean_backups(store, report)
         model = run(store, consumers, lock, report)
         sections.append((model, report, "用户级（全局 store）"))
         # auto project diagnosis for the cwd (skipped when absent, or when the
@@ -985,6 +1063,9 @@ def main(argv=None) -> int:
             proj_skills = cwd / ".claude" / "skills"
             if proj_skills.is_dir() and proj_skills.resolve() != store.resolve():
                 preport = Report()
+                if args.clean_backups:
+                    # 与显式 --project 分支一致：先清理再诊断，check_backups 反映清理后状态
+                    clean_backups(proj_skills, preport)
                 pmodel = run(proj_skills, [], cwd / ".claude" / ".skill-lock.json", preport,
                              project_root=cwd, cross_store=store)
                 sections.append((pmodel, preport, f"项目（{_short(str(cwd))}）"))
