@@ -15,6 +15,7 @@ This project contains the following core utility Skills to optimize and automate
 | [rf-skill-installer](skills/rf-skill-installer/SKILL.md) | Quick Install | **One-click Deploy**: Automatically generates `npx skills add` commands from GitHub URLs and checks for dependencies. |
 | [rf-commit-push](skills/rf-commit-push/SKILL.md) | Git Automation | **Atomic Operations**: Analyzes diffs to generate conventional commit messages and completes stage, commit, and push in one go. |
 | [rf-skill-doctor](skills/rf-skill-doctor/SKILL.md) | Health Check | **Diagnostics**: Scans the single-store, multi-consumer model for link integrity, lock-file consistency, and directory standards. |
+| [rf-skill-link](skills/rf-skill-link/SKILL.md) | Global Link | **Repo Aggregation**: Symlinks all skills under the repo's `skills/` into a single directory (default `~/.agents/skills`), aggregating skills from multiple repos in one place. |
 
 ## Usage Scenarios
 
@@ -42,6 +43,11 @@ After completing a development milestone:
 When a Skill is not working or the directory structure is messy:
 - Trigger: `/rf-skill-doctor` or "skill health check".
 - Effect: Identifies broken symlinks or non-compliant `SKILL.md` files and provides repair suggestions.
+
+### 6. Aggregating Repo Skills into a Global Directory
+When you maintain multiple skill repos and want them exposed through one global directory:
+- Trigger: `/rf-skill-link` (at the repo root).
+- Effect: Every skill under `skills/` is symlinked into `~/.agents/skills`; repo updates take effect instantly, and removed skills are cleaned up on the next run.
 
 ## Installation
 
@@ -81,11 +87,11 @@ git clone https://github.com/wangruofeng/skillctl.git
 cd skillctl
 ```
 
-Symlink directories under `skills/` into `~/.agents/skills/` or the project's `.claude/skills/`, then run `/rf-skill-sync` to sync other Agent directories.
+Run `/rf-skill-link` (or `bash skills/rf-skill-link/scripts/link.sh`) to symlink every skill under `skills/` into `~/.agents/skills/` — repo updates take effect instantly. You can also link into a project's `.claude/skills/`, then run `/rf-skill-sync` to sync other Agent directories.
 
 ### 3. Install Global CLI Commands (Optional)
 
-Expose `skills-init` / `skills-sync` in your shell:
+Expose `skills-init` / `skills-sync` / `skills-doctor` / `skills-link` in your shell:
 
 ```bash
 # Install sync tool → skills-sync
@@ -93,6 +99,12 @@ bash skills/rf-skill-sync/scripts/install.sh
 
 # Install init tool → skills-init
 bash skills/rf-skill-init/scripts/install.sh
+
+# Install doctor tool → skills-doctor
+bash skills/rf-skill-doctor/scripts/install.sh
+
+# Install global link tool → skills-link
+bash skills/rf-skill-link/scripts/install.sh
 ```
 
 Then `source ~/.zshrc` (or open a new terminal). Pass `--uninstall` to remove.

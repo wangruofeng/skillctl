@@ -11,7 +11,8 @@ skillctl/
 │   ├── rf-skill-sync/    ← 跨环境同步工具
 │   ├── rf-skill-installer/ ← 快速安装工具
 │   ├── rf-commit-push/    ← Git 自动化工具
-│   └── rf-skill-doctor/   ← 状态诊断工具
+│   ├── rf-skill-doctor/   ← 状态诊断工具
+│   └── rf-skill-link/     ← 全局链接工具
 ├── docs/             ← 文档
 ├── AGENTS.md -> CLAUDE.md  ← 兼容入口（软链接）
 ├── CLAUDE.md         ← 项目约定（本文件）
@@ -32,7 +33,8 @@ skillctl/
 
 ## 常用命令
 
-- **安装全局 alias**: `bash skills/rf-skill-init/scripts/install.sh` / `bash skills/rf-skill-sync/scripts/install.sh` / `bash skills/rf-skill-doctor/scripts/install.sh`
+- **安装全局 alias**: `bash skills/rf-skill-init/scripts/install.sh` / `bash skills/rf-skill-sync/scripts/install.sh` / `bash skills/rf-skill-doctor/scripts/install.sh` / `bash skills/rf-skill-link/scripts/install.sh`
 - **初始化新项目**: `skills-init` 或 `/rf-skill-init`
 - **同步项目 Skill**: `skills-sync` 或 `/rf-skill-sync`
 - **诊断 skill 健康**: `skills-doctor` 或 `/rf-skill-doctor`
+- **链接仓库 Skill 到全局目录**: `skills-link` 或 `/rf-skill-link`（默认 `~/.agents/skills`）
