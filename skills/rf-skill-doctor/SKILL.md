@@ -1,7 +1,7 @@
 ---
 name: rf-skill-doctor
 description: "诊断本地 skill 管理健康（全局仓与项目 .claude/skills）：软链接完整性、锁文件一致性、SKILL.md 规范检查。用于 skill 健康检查/诊断、排查 skill 没生效/没同步/找不到。用法、参数与修复见正文。"
-version: 1.0.0
+version: 1.0.1
 ---
 
 # Skill Doctor

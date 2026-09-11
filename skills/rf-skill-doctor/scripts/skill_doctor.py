@@ -231,7 +231,9 @@ def validate_skill_md(skill_dir: Path) -> tuple[str, str]:
     if not desc:
         return "FAIL", "缺少 'description' 或内容为空"
     # version 可选：有则附在通过信息里，缺失不失败、不警告
-    if not re.match(r"^[a-z0-9-]+$", name):
+    # 尾部允许点分版本段（如 github-1.0.0）：目录名带版本后缀是 skills 生态
+    # 从 plugin cache 复制安装的常见模式，否则与"name 须与目录名一致"自相矛盾
+    if not re.fullmatch(r"[a-z0-9]+(?:-[a-z0-9]+)*(?:-\d+(?:\.\d+)+)?", name):
         return "WARN", f"name '{name}' 不是连字符小写格式"
     if name != skill_dir.name:
         return "WARN", f"frontmatter 中的 name '{name}' 与目录名 '{skill_dir.name}' 不一致"
@@ -541,8 +543,11 @@ def run(store: Path, consumers: list[Path], lock: Path, report: Report,
     # 1. store / project skills dir
     if not sinfo["exists"] and not sinfo["is_link"]:
         if project_root:
-            report.add("FAIL", "store", f"项目 skills 目录不存在：{store}",
-                       "该项目下没有 .claude/skills —— 无可诊断内容。")
+            # 项目没有 .claude/skills 是合法状态（未安装项目级 skill），
+            # 初始化引导由"单一事实源"检查负责，这里不重复报 FAIL
+            report.add("PASS", "store", f"项目无 skills 目录：{store}",
+                       "该项目下没有 .claude/skills —— 无项目 skill 可诊断。"
+                       "如需初始化可运行 skills-init。")
         else:
             report.add("FAIL", "store", f"store 目录不存在：{store}",
                        "请创建该目录或通过 --store 指定。消费端无法镜像一个不存在的 store。")
@@ -606,14 +611,17 @@ def run(store: Path, consumers: list[Path], lock: Path, report: Report,
     if lock.exists() and sinfo["exists"] and not sinfo["is_link"]:
         orphans = sorted(disk_names - lock_names)
         missing = sorted(lock_names - disk_names)
-        if orphans:
-            report.add("WARN", "reconcile",
-                       f"{len(orphans)} 个 skill 存在于磁盘但未被 lock 文件跟踪",
-                       _trunc(orphans))
+        # lock 只是 skills CLI 的安装账本：手动复制/软链接安装的 skill 不在其中
+        # 属正常，orphan 仅作信息性提示；missing（残留账目）才是需要清理的问题
         if missing:
             report.add("WARN", "reconcile",
                        f"{len(missing)} 个 skill 被 lock 文件跟踪但磁盘上已不存在（残留记录）",
                        _trunc(missing))
+        if orphans:
+            report.add("PASS", "reconcile",
+                       f"{len(disk_names)} 个 skill 中 {len(orphans)} 个不受 lock 跟踪"
+                       "（手动安装或软链接管理，lock 仅记录 skills CLI 安装条目，属正常）",
+                       _trunc(orphans))
         if not orphans and not missing:
             report.add("PASS", "reconcile", f"磁盘与 lock 文件一致（{len(disk_names)} 个 skill）")
 
@@ -869,12 +877,16 @@ def _findings_lines(report: Report, width: int) -> list[str]:
     lines: list[str] = []
     for (_, items), label in zip(groups, labels):
         for n, f in enumerate(items):
-            head = f"  {_pad(label if n == 0 else '', lw)}  {_icon(f['level'])}  "
-            for i, seg in enumerate(_wrap(_abbr(f["msg"]), width - _w(head))):
-                lines.append(head + seg if i == 0 else " " * _w(head) + seg)
+            # 宽度按无色版本计算：_w() 会把 ANSI 色码当可见字符，导致
+            # 彩色（tty）模式下折行过早、续行缩进过量。渲染时再套色。
+            head = f"  {_pad(label if n == 0 else '', lw)}  "
+            icon = _icon(f["level"])
+            head_w = _w(head) + _w(ICON[f["level"]]) + 2
+            for i, seg in enumerate(_wrap(_abbr(f["msg"]), width - head_w)):
+                lines.append((head + icon + "  " + seg) if i == 0 else " " * head_w + seg)
             detail = f.get("detail")
             if detail:
-                indent = " " * _w(head)
+                indent = " " * head_w
                 body = _wrap(_abbr(detail), width - _w(indent))
                 if len(body) > _MAX_DETAIL_LINES:
                     hidden = len(body) - (_MAX_DETAIL_LINES - 1)
@@ -913,14 +925,15 @@ def build_parser() -> argparse.ArgumentParser:
         description="诊断本地 skill 管理模型（store + 软链接消费端 + lock 文件），"
                     "或诊断某个项目的 .claude/skills（--project）。",
     )
-    p.add_argument("--project", nargs="?", const=".", default=None, metavar="PATH",
-                   help="仅诊断 <PATH>/.claude/skills（默认当前目录）。项目 skill 由 git 管理、"
-                        "自成可信来源：检查 SKILL.md 有效性、非 skill 条目、反向软链接，"
-                        "与全局 store 的重名/内容漂移，以及 git 仓库中非源头 skill 目录"
-                        "（.zcode/.codex 等）是否已被 .gitignore 覆盖。不加此参数时，默认运行会自动"
-                        "附加一份对当前目录的项目诊断。")
-    p.add_argument("--no-project", action="store_true", dest="no_project",
-                   help="默认运行中跳过对当前目录的自动项目诊断")
+    mode = p.add_mutually_exclusive_group()
+    mode.add_argument("--project", nargs="?", const=".", default=None, metavar="PATH",
+                      help="仅诊断 <PATH>/.claude/skills（默认当前目录）。项目 skill 由 git 管理、"
+                           "自成可信来源：检查 SKILL.md 有效性、非 skill 条目、反向软链接，"
+                           "与全局 store 的重名/内容漂移，以及 git 仓库中非源头 skill 目录"
+                           "（.zcode/.codex 等）是否已被 .gitignore 覆盖。不加此参数时，默认运行会自动"
+                           "附加一份对当前目录的项目诊断。")
+    mode.add_argument("--no-project", action="store_true", dest="no_project",
+                      help="默认运行中跳过对当前目录的自动项目诊断（与 --project 互斥）")
     p.add_argument("--store", default=None,
                    help="真实的 skill store 目录（用户模式）；项目模式下为交叉比对的目标 store"
                         "（默认 ~/.agents/skills）")
@@ -947,7 +960,9 @@ def main(argv=None) -> int:
         cross_store: Path | None = Path(args.store).expanduser() if args.store else DEFAULT_STORE
         report = Report()
         if args.fix:
-            apply_fix(store, consumers, report)
+            # 项目模式没有消费端软链接，--fix 无可修复对象（SKILL.md：no-op）；
+            # 不调用 apply_fix，避免对不存在的 .claude/skills 误报 FAIL
+            report.add("PASS", "fix", "项目模式下无消费端软链接，--fix 无操作")
         model = run(store, consumers, lock, report,
                     project_root=project_root, cross_store=cross_store)
         sections.append((model, report, f"项目（{_short(str(project_root))}）"))
