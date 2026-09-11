@@ -1,7 +1,7 @@
 ---
 name: rf-skill-link
 description: "将 skill 仓库（skills/ 或 .claude/skills/）下的所有 skill 软链接到统一目录（默认 ~/.agents/skills），多仓库 skill 一处汇聚。用于把仓库下的 skill 链接到用户目录/全局 skill 目录，如「把 XX 仓库的 skill 链接到 ~/.agents/skills」。幂等可重跑，自动清理指向本仓库的失效链接。用法与参数见正文。"
-version: 1.1.0
+version: 1.2.0
 ---
 
 # Skill 全局链接
@@ -51,7 +51,7 @@ bash {baseDir}/scripts/link.sh --force
 
 ## 行为
 
-- **自动探测源目录**：git 仓库根下 `skills/`，其次 `.claude/skills/`；都不存在或不在 git 仓库时，用 `--source` 显式指定
+- **自动探测源目录**：git 仓库根下 `skills/`，其次 `.claude/skills/`，最后回退到 git 仓库根一级目录（skill 直接平铺在根下的仓库，如 khazix-skills；要求根下存在含 `SKILL.md` 的一级子目录）；都不匹配或不在 git 仓库时，用 `--source` 显式指定
 - **仅链接合法 skill**：源目录下只有包含 `SKILL.md` 的一级子目录才算 skill；其余（无 `SKILL.md` 的目录）列出并忽略
 - **绝对路径软链接**：与 `~/.agents/skills` 的现有约定一致，目标目录里的链接可读性好；同项目内的相对链接场景请用 `rf-skill-sync`
 - **幂等**：指向正确的链接跳过；指向错误的自动修复；重复运行安全

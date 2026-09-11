@@ -1,7 +1,7 @@
 #!/bin/bash
 # link.sh — 将仓库内的所有 skill 软链接到统一目录（默认 ~/.agents/skills）
 # 方向：skill 仓库 → 用户全局目录（多仓库 skill 汇聚到一处，仓库是唯一事实源）。
-# 源目录默认自动探测（git 根下 skills/，其次 .claude/skills/），--source 覆盖；
+# 源目录默认自动探测（git 根下 skills/，其次 .claude/skills/，最后 git 根一级目录），--source 覆盖；
 # 链接使用绝对路径（与 ~/.agents/skills 现有约定一致；项目内相对链接请用 rf-skill-sync）。
 # 幂等：正确链接跳过、指向错误的修复；目标中真实目录/文件默认跳过，--force 强制覆盖。
 # 清理只摘除指向本仓库且已失效的链接，目标目录中其他来源的内容一律不动。
@@ -21,7 +21,7 @@ usage() {
 用法: link.sh [--source <目录>] [--target <目录>] [目标目录] [--dry-run] [--force] [--remove]
 
 将源目录下的所有 skill（含 SKILL.md 的一级子目录）软链接到目标目录。
-  源目录:   默认自动探测 —— git 根下 skills/，其次 .claude/skills/；--source 覆盖
+  源目录:   默认自动探测 —— git 根下 skills/，其次 .claude/skills/，最后 git 根一级目录（含 SKILL.md 的子目录）；--source 覆盖
   目标目录: 默认 ~/.agents/skills；位置参数或 --target 覆盖
 
 选项:
@@ -70,6 +70,15 @@ if [[ -z "$SOURCE" ]]; then
       break
     fi
   done
+  # 兜底：仓库根一级目录即 skill（skill 直接平铺在根下的仓库，如 khazix-skills）
+  if [[ -z "$SOURCE" ]]; then
+    for entry in "$ROOT"/*/; do
+      if [[ -f "$entry/SKILL.md" ]]; then
+        SOURCE="$ROOT"
+        break
+      fi
+    done
+  fi
 fi
 
 if [[ -n "$SOURCE" && ! -d "$SOURCE" ]]; then
@@ -77,7 +86,7 @@ if [[ -n "$SOURCE" && ! -d "$SOURCE" ]]; then
   exit 1
 fi
 if [[ -z "$SOURCE" ]]; then
-  echo "错误: 未找到源 skill 目录（已尝试: ${ROOT:-$PWD}/skills、${ROOT:-$PWD}/.claude/skills）" >&2
+  echo "错误: 未找到源 skill 目录（已尝试: ${ROOT:-$PWD}/skills、${ROOT:-$PWD}/.claude/skills、仓库根一级目录）" >&2
   echo "  请用 --source <目录> 显式指定" >&2
   exit 1
 fi
