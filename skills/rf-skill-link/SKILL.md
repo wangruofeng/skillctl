@@ -1,7 +1,7 @@
 ---
 name: rf-skill-link
 description: "将 skill 仓库（skills/ 或 .claude/skills/）下的所有 skill 软链接到统一目录（默认 ~/.agents/skills），多仓库 skill 一处汇聚。用于把仓库下的 skill 链接到用户目录/全局 skill 目录，如「把 XX 仓库的 skill 链接到 ~/.agents/skills」。幂等可重跑，自动清理指向本仓库的失效链接。用法与参数见正文。"
-version: 1.0.0
+version: 1.1.0
 ---
 
 # Skill 全局链接
@@ -42,6 +42,9 @@ bash {baseDir}/scripts/link.sh --source ~/code/foo/skills --target ~/.agents/ski
 
 # 摘除本仓库在目标目录中的所有链接
 bash {baseDir}/scripts/link.sh --remove
+
+# 强制覆盖目标中同名的真实目录/文件（原内容备份为 *.bak-<时间戳>）
+bash {baseDir}/scripts/link.sh --force
 ```
 
 作为 skill 触发时（`/rf-skill-link` 或「把仓库 skill 链接到全局目录」），在目标仓库根目录直接运行无参命令即可；用户指定了其他目标目录时传位置参数。不确定时先跑 `--dry-run` 预览。
@@ -52,7 +55,7 @@ bash {baseDir}/scripts/link.sh --remove
 - **仅链接合法 skill**：源目录下只有包含 `SKILL.md` 的一级子目录才算 skill；其余（无 `SKILL.md` 的目录）列出并忽略
 - **绝对路径软链接**：与 `~/.agents/skills` 的现有约定一致，目标目录里的链接可读性好；同项目内的相对链接场景请用 `rf-skill-sync`
 - **幂等**：指向正确的链接跳过；指向错误的自动修复；重复运行安全
-- **不覆盖真实内容**：目标中同名真实目录或普通文件跳过并警告，绝不覆盖
+- **不覆盖真实内容**：目标中同名真实目录或普通文件默认跳过并警告；加 `--force`（`-f`）强制覆盖——原内容先重命名为 `<名字>.bak-<时间戳>` 保留在目标目录同级，确认无误后可手动删除，可配合 `--dry-run` 先预览
 - **清理只针对本仓库**：仅删除指向本仓库、但源 skill 已不存在的失效链接；目标目录中其他来源的链接与真实目录一律不动（全局目录是多仓库共享的）
 - **自引用保护**：源目录与目标目录相同时报错退出
 - **`--remove` 摘除**：删除目标目录中所有指向本仓库的链接，把仓库从全局目录摘除

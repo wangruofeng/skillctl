@@ -3,7 +3,7 @@
 # 方向：skill 仓库 → 用户全局目录（多仓库 skill 汇聚到一处，仓库是唯一事实源）。
 # 源目录默认自动探测（git 根下 skills/，其次 .claude/skills/），--source 覆盖；
 # 链接使用绝对路径（与 ~/.agents/skills 现有约定一致；项目内相对链接请用 rf-skill-sync）。
-# 幂等：正确链接跳过、指向错误的修复；目标中真实目录/文件绝不覆盖。
+# 幂等：正确链接跳过、指向错误的修复；目标中真实目录/文件默认跳过，--force 强制覆盖。
 # 清理只摘除指向本仓库且已失效的链接，目标目录中其他来源的内容一律不动。
 # 兼容 macOS 自带 bash 3.2：不使用关联数组、realpath -m，空数组不展开。
 # 用法:
@@ -12,12 +12,13 @@
 #   ./link.sh --source <目录>     指定源目录
 #   ./link.sh --dry-run           预览，不做任何修改
 #   ./link.sh --remove            摘除目标目录中指向本仓库的所有链接
+#   ./link.sh --force             强制覆盖目标中的真实目录/文件（破坏性，慎用）
 
 set -euo pipefail
 
 usage() {
   cat <<'EOF'
-用法: link.sh [--source <目录>] [--target <目录>] [目标目录] [--dry-run] [--remove]
+用法: link.sh [--source <目录>] [--target <目录>] [目标目录] [--dry-run] [--force] [--remove]
 
 将源目录下的所有 skill（含 SKILL.md 的一级子目录）软链接到目标目录。
   源目录:   默认自动探测 —— git 根下 skills/，其次 .claude/skills/；--source 覆盖
@@ -27,6 +28,7 @@ usage() {
   --source <目录>   指定源 skill 目录
   --target <目录>   指定目标目录（与位置参数等价，后者优先）
   --dry-run         预览，不做任何修改
+  --force, -f       强制覆盖目标中同名真实目录/文件（破坏性：会被移动到系统 Trash，慎用）
   --remove          摘除目标目录中指向本仓库的所有链接（含失效链接）
   -h, --help        显示本帮助
 EOF
@@ -35,6 +37,7 @@ EOF
 SOURCE=""
 TARGET="${HOME}/.agents/skills"
 DRY_RUN=false
+FORCE=false
 REMOVE=false
 
 while [[ $# -gt 0 ]]; do
@@ -46,6 +49,7 @@ while [[ $# -gt 0 ]]; do
       [[ $# -ge 2 ]] || { echo "错误: --target 需要一个参数" >&2; exit 1; }
       TARGET="$2"; shift 2 ;;
     --dry-run) DRY_RUN=true; shift ;;
+    --force|-f) FORCE=true; shift ;;
     --remove)  REMOVE=true; shift ;;
     -h|--help) usage; exit 0 ;;
     -*)        echo "错误: 未知参数: $1" >&2; usage >&2; exit 1 ;;
@@ -83,6 +87,7 @@ echo "=== Skill 全局链接 ==="
 echo "源目录: $SRC_ABS"
 echo "目标:   $TARGET"
 $DRY_RUN && echo "模式: 预览（不会实际修改）"
+$FORCE && echo "模式: 强制覆盖（真实目录/文件将备份为 *.bak-<时间戳>）"
 $REMOVE && echo "模式: 摘除（移除指向本仓库的链接）"
 echo
 
@@ -160,6 +165,7 @@ added=0
 fixed=0
 kept=0
 blocked=0
+forced=0
 if [[ ${#source_names[@]} -gt 0 ]]; then
   for name in "${source_names[@]}"; do
     link="$TGT_ABS/$name"
@@ -174,8 +180,18 @@ if [[ ${#source_names[@]} -gt 0 ]]; then
         fixed=$((fixed + 1))
       fi
     elif [[ -e "$link" ]]; then
-      echo "  跳过: $name (目标已存在真实目录/文件，不覆盖)"
-      blocked=$((blocked + 1))
+      if [[ "$FORCE" == true ]]; then
+        backup="${link}.bak-$(date +%Y%m%d%H%M%S)"
+        echo "  覆盖: $name (真实目录/文件 → 备份为 $(basename "$backup"))"
+        if [[ "$DRY_RUN" != true ]]; then
+          mv "$link" "$backup"
+          ln -s "$expected" "$link"
+        fi
+        forced=$((forced + 1))
+      else
+        echo "  跳过: $name (目标已存在真实目录/文件，不覆盖；可加 --force 强制)"
+        blocked=$((blocked + 1))
+      fi
     else
       echo "  新增: $name"
       $DRY_RUN || ln -s "$expected" "$link"
@@ -198,6 +214,9 @@ for link in "$TGT_ABS"/*; do
 done
 
 echo "  结果: +$added / ~$fixed / -$removed / =$kept (新增/修复/删除/已存在)"
+if [[ $forced -gt 0 ]]; then
+  echo "  注意: $forced 个真实目录/文件被强制覆盖（已备份为 *.bak-<时间戳>，确认无误后可删除）"
+fi
 if [[ $blocked -gt 0 ]]; then
   echo "  注意: $blocked 个名字被真实目录/文件占用，未覆盖"
 fi
