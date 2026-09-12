@@ -51,7 +51,26 @@ When you maintain multiple skill repos and want them exposed through one global 
 
 ## Installation
 
-### 1. Install Skills from This Repo
+### 1. Natural Language Install (Recommended)
+
+Just tell Claude Code what you need in plain language — Claude handles the installation for you:
+
+```text
+# Install only the skill suite
+Install the skills from this repo for me: https://github.com/wangruofeng/skillctl
+
+# Install both the skill suite and the companion CLI commands
+Install https://github.com/wangruofeng/skillctl for me — set up the skills along with the CLI commands like skills-init / skills-sync
+```
+
+| Scope | What Claude does | What you get |
+| --- | --- | --- |
+| Skills only | Installs via `npx skills add` (commands in the next section) | All skills (`/rf-skill-init`, `/rf-commit-push`, ...) available in sessions |
+| Skills + CLI | Clones this repo locally, links the skills, and runs each `install.sh` (sections 3 & 4) | Additionally the terminal commands `skills-init` / `skills-sync` / `skills-doctor` / `skills-link`; update via `git pull` |
+
+> CLI commands are aliases pointing at the local clone — keep it in a fixed directory for long-term use.
+
+### 2. Install Skills from This Repo
 
 Install with the [skills CLI](https://github.com/vercel-labs/skills) (recommended):
 
@@ -80,7 +99,7 @@ npx skills add wangruofeng/skillctl --skill rf-commit-push -a claude-code -y
 
 > Prefer project-level + Claude Code by default so skills stay with the project. Use `-g` only when you need cross-project reuse.
 
-### 2. Use from Source
+### 3. Use from Source
 
 ```bash
 git clone https://github.com/wangruofeng/skillctl.git
@@ -89,7 +108,7 @@ cd skillctl
 
 Run `/rf-skill-link` (or `bash skills/rf-skill-link/scripts/link.sh`) to symlink every skill under `skills/` into `~/.agents/skills/` — repo updates take effect instantly. You can also link into a project's `.claude/skills/`, then run `/rf-skill-sync` to sync other Agent directories.
 
-### 3. Install Global CLI Commands (Optional)
+### 4. Install Global CLI Commands (Optional)
 
 Expose `skills-init` / `skills-sync` / `skills-doctor` / `skills-link` in your shell:
 

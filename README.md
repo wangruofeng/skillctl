@@ -53,7 +53,26 @@
 
 ## 安装
 
-### 1. 安装本仓库 Skill
+### 1. 自然语言安装（推荐）
+
+在 Claude Code 中直接说出需求即可，无需手动复制命令，Claude 会替你完成安装：
+
+```text
+# 只安装 skill 套件
+帮我安装这个仓库的 skill：https://github.com/wangruofeng/skillctl
+
+# 同时安装 skill 套件和配套 CLI 命令
+帮我安装 https://github.com/wangruofeng/skillctl，skill 之外把 skills-init / skills-sync 这些 CLI 命令也一起装好
+```
+
+| 粒度 | Claude 会做什么 | 得到什么 |
+| --- | --- | --- |
+| 只装 skill 套件 | 通过 `npx skills add` 安装（命令见下节） | 会话内可触发 `/rf-skill-init`、`/rf-commit-push` 等全部 skill |
+| skill + 配套 CLI | clone 本仓库到本地，链接 skill 并运行各 `install.sh`（见第 3、4 节） | 额外获得终端命令 `skills-init` / `skills-sync` / `skills-doctor` / `skills-link`，`git pull` 即可更新 |
+
+> CLI 命令以 alias 指向本地源码，建议固定一个 clone 目录长期维护。
+
+### 2. 安装本仓库 Skill
 
 通过 [skills CLI](https://github.com/vercel-labs/skills) 一键安装（推荐）：
 
@@ -82,7 +101,7 @@ npx skills add wangruofeng/skillctl --skill rf-commit-push -a claude-code -y
 
 > 默认推荐「项目级 + Claude Code」：skill 跟随项目、不污染全局。仅在需要跨项目复用时再选 `-g`。
 
-### 2. 从源码本地使用
+### 3. 从源码本地使用
 
 ```bash
 git clone https://github.com/wangruofeng/skillctl.git
@@ -91,7 +110,7 @@ cd skillctl
 
 运行 `/rf-skill-link`（或 `bash skills/rf-skill-link/scripts/link.sh`）把 `skills/` 下各 skill 软链到 `~/.agents/skills/`，仓库内更新即时生效；也可链到项目的 `.claude/skills/`，再用 `/rf-skill-sync` 同步到其他 Agent 目录。
 
-### 3. 安装全局 CLI 命令（可选）
+### 4. 安装全局 CLI 命令（可选）
 
 方便在终端直接调用 `skills-init` / `skills-sync` / `skills-doctor` / `skills-link`：
 
