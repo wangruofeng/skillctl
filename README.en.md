@@ -14,8 +14,8 @@ This project contains the following core utility Skills to optimize and automate
 | [rf-skill-sync](skills/rf-skill-sync/SKILL.md) | Cross-env Sync | **Instant Sync**: Maintains consistency across all Agent Skill directories via symlinks and auto-cleans broken links. |
 | [rf-skill-installer](skills/rf-skill-installer/SKILL.md) | Quick Install | **One-click Deploy**: Automatically generates `npx skills add` commands from GitHub URLs and checks for dependencies. |
 | [rf-commit-push](skills/rf-commit-push/SKILL.md) | Git Automation | **Atomic Operations**: Analyzes diffs to generate conventional commit messages and completes stage, commit, and push in one go. |
-| [rf-skill-doctor](skills/rf-skill-doctor/SKILL.md) | Health Check | **Diagnostics**: Scans the single-store, multi-consumer model for link integrity, lock-file consistency, and directory standards. |
-| [rf-skill-link](skills/rf-skill-link/SKILL.md) | Global Link | **Repo Aggregation**: Symlinks all skills under the repo's `skills/` into a single directory (default `~/.agents/skills`), aggregating skills from multiple repos in one place. |
+| [rf-skill-doctor](skills/rf-skill-doctor/SKILL.md) | Health Check | **Diagnostics & Autofix**: Scans the single-store, multi-consumer model for link integrity, lock-file consistency, and directory standards; `--autofix` applies every safe repair in one shot. |
+| [rf-skill-link](skills/rf-skill-link/SKILL.md) | Global Link | **Repo Aggregation**: Symlinks a repo's skills (`skills/` container, flat layout, or the repo root itself being a single skill) into a single directory (default `~/.agents/skills`), aggregating skills from multiple repos in one place. |
 
 ## Usage Scenarios
 
@@ -42,12 +42,12 @@ After completing a development milestone:
 ### 5. Troubleshooting
 When a Skill is not working or the directory structure is messy:
 - Trigger: `/rf-skill-doctor` or "skill health check".
-- Effect: Identifies broken symlinks or non-compliant `SKILL.md` files and provides repair suggestions.
+- Effect: Identifies broken symlinks or non-compliant `SKILL.md` files and provides repair suggestions; `skills-doctor --autofix` applies every safe repair in one shot.
 
 ### 6. Aggregating Repo Skills into a Global Directory
 When you maintain multiple skill repos and want them exposed through one global directory:
 - Trigger: `/rf-skill-link` (at the repo root).
-- Effect: Every skill under `skills/` is symlinked into `~/.agents/skills`; repo updates take effect instantly, and removed skills are cleaned up on the next run.
+- Effect: Repo skills (`skills/` container, flat layout, or single-skill repo) are symlinked into `~/.agents/skills`; repo updates take effect instantly, and removed skills are cleaned up on the next run.
 
 ## Installation
 

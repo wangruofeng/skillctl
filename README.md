@@ -16,8 +16,8 @@
 | [rf-skill-sync](skills/rf-skill-sync/SKILL.md) | 跨环境同步 | **即时同步**：通过软链接保持项目内所有 Agent 的 Skill 目录一致，自动清理失效链接。 |
 | [rf-skill-installer](skills/rf-skill-installer/SKILL.md) | 快速安装 | **一键部署**：从 GitHub URL 自动生成 `npx skills add` 命令并检查安装依赖。 |
 | [rf-commit-push](skills/rf-commit-push/SKILL.md) | Git 自动化 | **原子操作**：分析 Diff 生成规范 Commit Message，并一口气完成暂存、提交与推送。 |
-| [rf-skill-doctor](skills/rf-skill-doctor/SKILL.md) | 状态诊断 | **健康检查**：扫描单库多环境（Single-store）的链接完整性、Lock 文件一致性与目录规范。 |
-| [rf-skill-link](skills/rf-skill-link/SKILL.md) | 全局链接 | **仓库汇聚**：将仓库 `skills/` 下所有 skill 软链接到统一目录（默认 `~/.agents/skills`），多仓库 skill 一处汇聚。 |
+| [rf-skill-doctor](skills/rf-skill-doctor/SKILL.md) | 状态诊断 | **诊断与修复**：扫描单库多环境（Single-store）的链接完整性、Lock 文件一致性与目录规范；`skills-doctor --autofix` 一键完成全部安全修复。 |
+| [rf-skill-link](skills/rf-skill-link/SKILL.md) | 全局链接 | **仓库汇聚**：将仓库 skill（`skills/` 容器、根下平铺、或仓库根本身即单个 skill）软链接到统一目录（默认 `~/.agents/skills`），多仓库 skill 一处汇聚。 |
 
 ## 使用场景
 
@@ -44,12 +44,12 @@
 ### 5. 故障排查
 当发现 Skill 没生效或目录混乱时：
 - 触发：`/rf-skill-doctor` 或 `skill 健康检查`
-- 效果：定位断连的软链接或不符合规范的 `SKILL.md` 并提供修复建议。
+- 效果：定位断连的软链接或不符合规范的 `SKILL.md` 并提供修复建议，`skills-doctor --autofix` 可一键完成全部安全修复。
 
 ### 6. 汇聚仓库 Skill 到全局目录
 当你维护着多个 skill 仓库、希望统一暴露到一个全局目录时：
 - 触发：`/rf-skill-link`（在仓库根目录）
-- 效果：仓库 `skills/` 下所有 skill 以软链接进入 `~/.agents/skills`，仓库更新即时生效；删除 skill 后重跑即自动清理。
+- 效果：仓库 skill（`skills/` 容器、根下平铺、单 skill 仓库）以软链接进入 `~/.agents/skills`，仓库更新即时生效；删除 skill 后重跑即自动清理。
 
 ## 安装
 
