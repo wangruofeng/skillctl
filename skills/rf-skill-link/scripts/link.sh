@@ -1,7 +1,8 @@
 #!/bin/bash
 # link.sh — 将仓库内的所有 skill 软链接到统一目录（默认 ~/.agents/skills）
 # 方向：skill 仓库 → 用户全局目录（多仓库 skill 汇聚到一处，仓库是唯一事实源）。
-# 源目录默认自动探测（git 根下 skills/，其次 .claude/skills/，最后 git 根一级目录），--source 覆盖；
+# 支持三种仓库形态：skills/ 容器、根下平铺多 skill、单 skill 仓库（SKILL.md 直接在仓库根，如 web-access）。
+# 源目录默认自动探测（git 根下 skills/，其次 .claude/skills/，再次 git 根 SKILL.md 即单 skill 仓库，最后 git 根一级目录），--source 覆盖；
 # 链接使用绝对路径（与 ~/.agents/skills 现有约定一致；项目内相对链接请用 rf-skill-sync）。
 # 幂等：正确链接跳过、指向错误的修复；目标中真实目录/文件默认跳过，--force 强制覆盖。
 # 清理只摘除指向本仓库且已失效的链接，目标目录中其他来源的内容一律不动。
@@ -20,8 +21,8 @@ usage() {
   cat <<'EOF'
 用法: link.sh [--source <目录>] [--target <目录>] [目标目录] [--dry-run] [--force] [--remove]
 
-将源目录下的所有 skill（含 SKILL.md 的一级子目录）软链接到目标目录。
-  源目录:   默认自动探测 —— git 根下 skills/，其次 .claude/skills/，最后 git 根一级目录（含 SKILL.md 的子目录）；--source 覆盖
+将源目录下的所有 skill（含 SKILL.md 的一级子目录）软链接到目标目录；源目录本身含 SKILL.md 时视为单 skill 仓库，整体作为一个链接。
+  源目录:   默认自动探测 —— git 根下 skills/，其次 .claude/skills/，再次 git 根 SKILL.md（单 skill 仓库），最后 git 根一级目录（含 SKILL.md 的子目录）；--source 覆盖
   目标目录: 默认 ~/.agents/skills；位置参数或 --target 覆盖
 
 选项:
@@ -70,6 +71,10 @@ if [[ -z "$SOURCE" ]]; then
       break
     fi
   done
+  # 单 skill 仓库：SKILL.md 直接在仓库根（如 web-access），仓库根本身就是一个 skill
+  if [[ -z "$SOURCE" && -f "$ROOT/SKILL.md" ]]; then
+    SOURCE="$ROOT"
+  fi
   # 兜底：仓库根一级目录即 skill（skill 直接平铺在根下的仓库，如 khazix-skills）
   if [[ -z "$SOURCE" ]]; then
     for entry in "$ROOT"/*/; do
@@ -124,18 +129,26 @@ if [[ "$TGT_ABS" == "$SRC_ABS" ]]; then
   exit 1
 fi
 
-# --- 收集源 skills（仅统计含 SKILL.md 的一级子目录） ---
+# --- 收集源 skills ---
+# 单 skill 仓库（源目录本身含 SKILL.md）整体作为一个 skill，链接名取目录名；
+# 否则仅统计含 SKILL.md 的一级子目录。
 source_names=()
 ignored_names=()
-for entry in "$SRC_ABS"/*/; do
-  [[ -d "$entry" ]] || continue
-  name="$(basename "$entry")"
-  if [[ -f "$entry/SKILL.md" ]]; then
-    source_names+=("$name")
-  else
-    ignored_names+=("$name")
-  fi
-done
+SRC_IS_SKILL=false
+if [[ -f "$SRC_ABS/SKILL.md" ]]; then
+  SRC_IS_SKILL=true
+  source_names+=("$(basename "$SRC_ABS")")
+else
+  for entry in "$SRC_ABS"/*/; do
+    [[ -d "$entry" ]] || continue
+    name="$(basename "$entry")"
+    if [[ -f "$entry/SKILL.md" ]]; then
+      source_names+=("$name")
+    else
+      ignored_names+=("$name")
+    fi
+  done
+fi
 
 echo "源 skills (${#source_names[@]}):"
 if [[ ${#source_names[@]} -gt 0 ]]; then
@@ -178,7 +191,11 @@ forced=0
 if [[ ${#source_names[@]} -gt 0 ]]; then
   for name in "${source_names[@]}"; do
     link="$TGT_ABS/$name"
-    expected="$SRC_ABS/$name"
+    if [[ "$SRC_IS_SKILL" == true ]]; then
+      expected="$SRC_ABS"          # 单 skill：链接直接指向仓库根本身
+    else
+      expected="$SRC_ABS/$name"
+    fi
     if [[ -L "$link" ]]; then
       current="$(readlink "$link")"
       if [[ "$current" == "$expected" ]]; then
