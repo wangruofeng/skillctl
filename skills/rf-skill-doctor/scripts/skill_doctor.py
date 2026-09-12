@@ -28,6 +28,12 @@ lock-file reconciliation (orphans/missing), per-skill SKILL.md validity,
 symlinked skill sources, and (project sections) cross-store duplicates +
 single-source-of-truth / .gitignore coverage for non-source skill dirs.
 
+--autofix applies every safe, deterministic repair in one shot (consumer
+relink, stale lock-entry pruning, SKILL.md name alignment, backup cleanup,
+dangling per-skill link repair in real agent dirs, project .gitignore
+backfill + git untrack of mirror dirs). Anything non-deterministic (real-dir
+consumers, invalid lock JSON, dual-source copies, ...) stays guidance-only.
+
 Exit codes: 0 healthy | 1 warnings only | 2 one or more failures.
 """
 
@@ -40,13 +46,19 @@ import os
 import re
 import shutil
 import sys
+import time
 import unicodedata
 from pathlib import Path
 
 HOME = Path.home()
 DEFAULT_STORE = HOME / ".agents" / "skills"
 DEFAULT_LOCK = HOME / ".agents" / ".skill-lock.json"
-DEFAULT_CONSUMERS = [HOME / ".claude" / "skills", HOME / ".zcode" / "skills"]
+DEFAULT_CONSUMERS = [HOME / ".claude" / "skills", HOME / ".zcode" / "skills",
+                     HOME / ".cursor" / "skills"]
+# 用户级 Agent skill 目录（存在才检查）：整目录链消费端之外的「真实目录型」
+# Agent 目录（如 codex，为与系统 skill 共存而保留真实目录）在这里做内部逐 skill 链接体检
+DEFAULT_AGENT_DIRS = [HOME / ".claude" / "skills", HOME / ".zcode" / "skills",
+                      HOME / ".codex" / "skills", HOME / ".cursor" / "skills"]
 
 # 项目内 skill 唯一事实源；其余 .<agent>/skills 均为镜像，不应入库
 PROJECT_SOURCE_REL = ".claude/skills"
@@ -61,6 +73,18 @@ PROJECT_MIRROR_RELS = (
 GITIGNORE_SUGGESTIONS = (".codex/", ".cursor/", ".zcode/", ".agents/")
 
 _HASH_CAP = 2_000_000  # files larger than this are compared by size only
+
+# 与 SKILL.md frontmatter 的 version 同步（同一 commit 内一起改）
+SKILL_VERSION = "1.3.0"
+
+# 目录名 / name 的合法格式：连字符小写，允许尾部点分版本段（github-1.0.0）。
+# validate_skill_md 与 autofix 的 name 对齐共用这一份规则。
+_SLUG_RE = re.compile(r"[a-z0-9]+(?:-[a-z0-9]+)*(?:-\d+(?:\.\d+)+)?")
+
+
+def _ts() -> str:
+    """14 位时间戳，与 skills-link --force 的备份命名一致。"""
+    return time.strftime("%Y%m%d%H%M%S")
 
 
 # ----------------------------- presentation -----------------------------
@@ -251,7 +275,7 @@ def validate_skill_md(skill_dir: Path) -> tuple[str, str]:
     # version 可选：有则附在通过信息里，缺失不失败、不警告
     # 尾部允许点分版本段（如 github-1.0.0）：目录名带版本后缀是 skills 生态
     # 从 plugin cache 复制安装的常见模式，否则与"name 须与目录名一致"自相矛盾
-    if not re.fullmatch(r"[a-z0-9]+(?:-[a-z0-9]+)*(?:-\d+(?:\.\d+)+)?", name):
+    if not _SLUG_RE.fullmatch(name):
         return "WARN", f"name '{name}' 不是连字符小写格式"
     if name != skill_dir.name:
         return "WARN", f"frontmatter 中的 name '{name}' 与目录名 '{skill_dir.name}' 不一致"
@@ -308,21 +332,22 @@ def check_backups(d: Path, report: Report) -> None:
                "（--clean-backups：同名 skill 已存在的备份直接删除，不存在的跳过以防误删唯一副本）")
 
 
-def clean_backups(d: Path, report: Report) -> None:
+def clean_backups(d: Path, report: Report, check: str = "backups") -> None:
     """删除 skills-link --force 备份。同名 skill 已就位才删；否则备份可能是
     唯一副本，跳过并提示，交由用户决定。"""
+    label = "--autofix" if check == "autofix" else "--clean-backups"
     if not d.is_dir():
-        report.add("WARN", "backups", f"--clean-backups 已跳过：目录不存在或不可读：{d}")
+        report.add("WARN", check, f"{label} 已跳过：目录不存在或不可读：{d}")
         return
     baks = find_backups(d)
     if not baks:
-        report.add("PASS", "backups", "无 skills-link --force 备份需要清理")
+        report.add("PASS", check, "无 skills-link --force 备份需要清理")
         return
     removed = skipped = failed = 0
     for b in baks:
         original = _BAK_RE.match(b.name).group(1)
         if not (d / original).exists():
-            report.add("WARN", "backups",
+            report.add("WARN", check,
                        f"{b.name}：同名 skill '{original}' 不存在，备份可能是唯一副本，已跳过",
                        "确认不需要恢复后，可手动删除该备份")
             skipped += 1
@@ -332,14 +357,14 @@ def clean_backups(d: Path, report: Report) -> None:
                 shutil.rmtree(b)
             else:
                 b.unlink()
-            report.add("PASS", "backups", f"{b.name}：已删除（同名 skill '{original}' 正常）")
+            report.add("PASS", check, f"{b.name}：已删除（同名 skill '{original}' 正常）")
             removed += 1
         except OSError as e:
-            report.add("FAIL", "backups", f"{b.name}：删除失败：{e}")
+            report.add("FAIL", check, f"{b.name}：删除失败：{e}")
             failed += 1
     summary_level = "FAIL" if failed else ("WARN" if skipped else "PASS")
-    report.add(summary_level, "backups",
-               f"--clean-backups 汇总：已删除 {removed} 个，跳过 {skipped} 个"
+    report.add(summary_level, check,
+               f"{label} 汇总：已删除 {removed} 个，跳过 {skipped} 个"
                + (f"，失败 {failed} 个" if failed else ""))
 
 
@@ -367,6 +392,51 @@ def check_internal_links(store: Path, report: Report) -> None:
                    f"{len(healthy)} 个 skill 目录本身是软链接，真实源码位于被扫描目录之外"
                    f"（若是有意为之则无妨，但这意味着 store 并非完全自包含）",
                    "; ".join(healthy))
+
+
+def check_agent_dir_links(agent_dirs: list[Path], report: Report) -> None:
+    """用户级 Agent skill 目录内部的逐 skill 软链接体检。
+
+    整目录链消费端（目录本身是软链接）跟随目标，内部无独立链接，且其
+    健康已由「软链接」检查项负责，这里跳过；真实目录型 Agent 目录
+    （如 codex，为与系统 skill 共存而保留真实目录）内部的逐 skill
+    链接可能指向已被删除的 skill —— dangling 即 FAIL。
+    """
+    real_dirs: list[Path] = []
+    for d in agent_dirs:
+        info = describe(d)
+        if info["is_link"] or not info["exists"]:
+            continue  # 整目录链消费端（另由 symlink 检查）或未安装的 Agent
+        real_dirs.append(d)
+    if not real_dirs:
+        return
+    broken: list[str] = []
+    healthy = 0
+    for d in real_dirs:
+        try:
+            entries = sorted(d.iterdir())
+        except OSError:
+            continue
+        for e in entries:
+            if e.name.startswith(".") or not e.is_symlink():
+                continue
+            info = describe(e)
+            if not info["target_exists"]:
+                report.add("FAIL", "consumer-links",
+                           f"{d}：{e.name} 软链接失效 -> {info['target']}")
+                broken.append(f"{d.name}/{e.name}")
+            else:
+                healthy += 1
+    if broken:
+        report.add("FAIL", "consumer-links",
+                   f"{len(real_dirs)} 个真实目录型 Agent 目录中发现 {len(broken)} 个失效的逐 skill 软链接",
+                   _trunc(broken))
+    elif healthy:
+        report.add("PASS", "consumer-links",
+                   f"{len(real_dirs)} 个真实目录型 Agent 目录内 {healthy} 个逐 skill 软链接均有效")
+    else:
+        report.add("PASS", "consumer-links",
+                   f"{len(real_dirs)} 个真实目录型 Agent 目录内无逐 skill 软链接")
 
 
 def check_cross_store_duplicates(store: Path, cross: Path, report: Report) -> None:
@@ -437,6 +507,20 @@ def git_is_tracked(project_root: Path, rel: str) -> bool:
     return code == 0 and bool(out.strip())
 
 
+def git_rel_prefix(project_root: Path, git_root: Path) -> str:
+    """project_root 相对 git 仓库顶层的路径前缀（项目即顶层时为空串）。"""
+    try:
+        prefix = project_root.resolve().relative_to(git_root.resolve()).as_posix()
+    except ValueError:
+        return ""
+    return "" if prefix == "." else prefix
+
+
+def to_git_rel(prefix: str, project_rel: str) -> str:
+    """把项目内相对路径换算成相对 git 仓库顶层的路径。"""
+    return f"{prefix}/{project_rel}" if prefix else project_rel
+
+
 def discover_project_mirror_dirs(project_root: Path) -> list[str]:
     """发现项目根下一层 .<agent>/skills 目录（排除唯一事实源 .claude/skills）。"""
     found: set[str] = set()
@@ -479,18 +563,13 @@ def check_project_single_source(project_root: Path, report: Report) -> None:
 
     # 尽量在仓库根解释 ignore 规则（子目录项目时仍以 toplevel 为准）
     git_root = top
-    try:
-        rel_prefix = project_root.resolve().relative_to(git_root.resolve()).as_posix()
-    except ValueError:
-        rel_prefix = ""
+    rel_prefix = git_rel_prefix(project_root, git_root)
 
-    def to_git_rel(project_rel: str) -> str:
-        if not rel_prefix or rel_prefix == ".":
-            return project_rel
-        return f"{rel_prefix}/{project_rel}"
+    def to_rel(project_rel: str) -> str:
+        return to_git_rel(rel_prefix, project_rel)
 
     source = project_root / PROJECT_SOURCE_REL
-    source_git_rel = to_git_rel(PROJECT_SOURCE_REL)
+    source_git_rel = to_rel(PROJECT_SOURCE_REL)
 
     # 源头不应被整体 ignore（否则「唯一事实源」无法进版本库）
     if source.is_dir() or source.is_symlink():
@@ -524,7 +603,7 @@ def check_project_single_source(project_root: Path, report: Report) -> None:
 
     for rel in mirrors:
         path = project_root / rel
-        git_rel = to_git_rel(rel)
+        git_rel = to_rel(rel)
         exists = path.is_dir() or path.is_symlink()
         ignored_now = git_check_ignored(git_root, git_rel)
         tracked = git_is_tracked(git_root, git_rel)
@@ -593,7 +672,8 @@ def check_project_single_source(project_root: Path, report: Report) -> None:
 
 # ----------------------------- core diagnostic -----------------------------
 def run(store: Path, consumers: list[Path], lock: Path, report: Report,
-        project_root: Path | None = None, cross_store: Path | None = None) -> dict:
+        project_root: Path | None = None, cross_store: Path | None = None,
+        agent_dirs: list[Path] | None = None) -> dict:
     sinfo = describe(store)
     model = {
         "mode": "project" if project_root else "user",
@@ -602,6 +682,8 @@ def run(store: Path, consumers: list[Path], lock: Path, report: Report,
         "lock": str(lock),
         "store_info": sinfo,
     }
+    if not project_root:
+        model["agent_dirs"] = [str(d) for d in (agent_dirs or [])]
     if project_root:
         model["project"] = str(project_root)
         model["cross_store"] = str(cross_store) if cross_store else None
@@ -734,13 +816,19 @@ def run(store: Path, consumers: list[Path], lock: Path, report: Report,
     if project_root:
         check_project_single_source(project_root, report)
 
+    # 9. real-dir agent skill dirs: internal per-skill symlinks (user mode only)
+    if not project_root:
+        check_agent_dir_links(agent_dirs or [], report)
+
     return model
 
 
 # ----------------------------- repairs -----------------------------
-def apply_fix(store: Path, consumers: list[Path], report: Report) -> None:
+def apply_fix(store: Path, consumers: list[Path], report: Report,
+              check: str = "fix") -> None:
+    label = "--autofix" if check == "autofix" else "--fix"
     if not store.is_dir():
-        report.add("FAIL", "fix", f"--fix 已中止：store 不是真实目录：{store}")
+        report.add("FAIL", check, f"{label} 已中止：store 不是真实目录：{store}")
         return
     fixed = skipped = 0
     for c in consumers:
@@ -749,7 +837,7 @@ def apply_fix(store: Path, consumers: list[Path], report: Report) -> None:
         if already_ok:
             continue
         if ci["exists"] and not ci["is_link"]:
-            report.add("WARN", "fix", f"{c}：真实目录未做改动（请手动合并或迁移）")
+            report.add("WARN", check, f"{c}：真实目录未做改动（请手动合并或迁移）")
             skipped += 1
             continue
         reason = ("缺失" if not ci["is_link"]
@@ -760,18 +848,259 @@ def apply_fix(store: Path, consumers: list[Path], report: Report) -> None:
                 c.unlink()
             c.parent.mkdir(parents=True, exist_ok=True)
             c.symlink_to(store.resolve())
-            report.add("PASS", "fix", f"{c}：已重新链接 -> {store}（原状态：{reason}）")
+            report.add("PASS", check, f"{c}：已重新链接 -> {store}（原状态：{reason}）")
             fixed += 1
         except OSError as e:
-            report.add("FAIL", "fix", f"{c}：重新链接失败：{e}")
+            report.add("FAIL", check, f"{c}：重新链接失败：{e}")
             skipped += 1
-    report.add("PASS" if skipped == 0 else "WARN", "fix",
-               f"--fix 汇总：已重链 {fixed} 个，跳过 {skipped} 个")
+    report.add("PASS" if skipped == 0 else "WARN", check,
+               f"{label} 汇总：已重链 {fixed} 个，跳过 {skipped} 个")
+
+
+def prune_lock_stale(store: Path, lock: Path, report: Report,
+                     check: str = "autofix") -> None:
+    """--autofix：删除 lock 中磁盘上已不存在的 skills 条目（残留账目）。
+
+    先备份 lock 为 <lock>.bak-<14位时间戳>（与 lock 同目录，不在 store 内，
+    不会被备份检查误报）；仅删除 skills 子键，其余字段（version 等）与键序
+    原样保留。lock 非法或不可解析时不动作，交由 lock 检查项报 FAIL。
+    """
+    if not (lock.exists() and store.is_dir() and not store.is_symlink()):
+        return  # 这些状态由诊断检查负责报告
+    try:
+        data = json.loads(lock.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as e:
+        report.add("WARN", check, f"lock 无法解析，已跳过残留条目清理：{e}")
+        return
+    skills_map = data.get("skills", {}) if isinstance(data, dict) else {}
+    if not isinstance(skills_map, dict):
+        report.add("WARN", check, "lock 的 skills 字段不是键值映射，已跳过残留条目清理")
+        return
+    disk_names = {d.name for d in disk_skills(store)[0]}
+    stale = sorted(set(skills_map) - disk_names)
+    if not stale:
+        report.add("PASS", check, "lock 无残留条目需要清理")
+        return
+    try:
+        bak = lock.with_name(f"{lock.name}.bak-{_ts()}")
+        shutil.copy2(lock, bak)
+        for k in stale:
+            del skills_map[k]
+        lock.write_text(json.dumps(data, indent=2, ensure_ascii=False) + "\n",
+                        encoding="utf-8")
+    except OSError as e:
+        report.add("FAIL", check, f"lock 残留条目清理失败：{e}")
+        return
+    report.add("PASS", check, f"lock 已清理 {len(stale)} 条残留条目",
+               _trunc(stale) + f" | 备份：{_abbr(str(bak))}（验证后可删）")
+
+
+def autofix_skill_md_names(store: Path, report: Report,
+                           check: str = "autofix") -> None:
+    """--autofix：frontmatter name 与目录名不一致时，改写为目录名。
+
+    仅处理真实目录：store 里的反向软链接指向外部源仓库，链接名与源目录名
+    不保证一致，写穿链接可能改错源文件，所以只汇总为指引。改写在
+    frontmatter 块内做单行字节级替换（保留 CRLF 与其余内容），写入前先备份
+    SKILL.md.bak-<时间戳> 到同级。
+    """
+    if not (store.is_dir() and not store.is_symlink()):
+        return
+    fixed = failed = 0
+    link_mismatches: list[str] = []
+    for sd in disk_skills(store)[0]:
+        sm = sd / "SKILL.md"
+        try:
+            text = sm.read_text(encoding="utf-8")
+        except OSError:
+            continue  # 读取失败属 FAIL 级问题，由诊断报告
+        data, err = parse_frontmatter(text)
+        if err or not isinstance(data, dict):
+            continue
+        name = str(data.get("name", "")).strip()
+        if not name or name == sd.name:
+            continue
+        if sd.is_symlink():
+            link_mismatches.append(f"{sd.name}（源：{describe(sd)['resolved']}）")
+            continue
+        if not _SLUG_RE.fullmatch(sd.name):
+            continue  # 目录名本身不合法时改名会改变 skill 身份，交由人工
+        m = _FRONT_RE.match(text)
+        if not m:
+            continue
+        new_fm, n = re.subn(r"(?m)^(name[ \t]*:)[ \t]*.*?(\r?)$",
+                            rf"\1 {sd.name}\2", m.group(1), count=1)
+        if n != 1:
+            report.add("WARN", check,
+                       f"{sd.name}：未找到可替换的顶层 name: 行，已跳过")
+            continue
+        try:
+            bak = sm.with_name(f"SKILL.md.bak-{_ts()}")
+            shutil.copy2(sm, bak)
+            sm.write_text(text[:m.start(1)] + new_fm + text[m.end(1):],
+                          encoding="utf-8")
+        except OSError as e:
+            report.add("FAIL", check, f"{sd.name}：name 对齐失败：{e}")
+            failed += 1
+            continue
+        report.add("PASS", check,
+                   f"{sd.name}：name '{name}' -> '{sd.name}'",
+                   f"备份：{bak}（验证后可删）")
+        fixed += 1
+    if link_mismatches:
+        report.add("WARN", check,
+                   f"{len(link_mismatches)} 个软链接型 skill 的 name 与目录名不一致，"
+                   "已跳过（不写穿软链接）",
+                   _trunc(link_mismatches) + " | 请到源仓库把 frontmatter 的 name "
+                   "改为目录名后同步")
+    if fixed or link_mismatches or failed:
+        summary_parts = [f"已对齐 {fixed} 个"]
+        if link_mismatches:
+            summary_parts.append(f"软链接跳过 {len(link_mismatches)} 个")
+        if failed:
+            summary_parts.append(f"失败 {failed} 个")
+        report.add("FAIL" if failed else "PASS", check,
+                   "SKILL.md name 对齐汇总：" + "，".join(summary_parts))
+    else:
+        report.add("PASS", check, "所有真实目录 skill 的 name 均与目录名一致")
+
+
+def autofix_agent_dir_links(store: Path, agent_dirs: list[Path],
+                            report: Report, check: str = "autofix") -> None:
+    """--autofix：真实目录型 Agent 目录内失效的逐 skill 软链接。
+
+    store 中同名 skill 存在 -> 重链到 store；不存在 -> 摘除（目标已消失，
+    无数据可丢，与 rf-skill-sync 的清理行为一致）。非软链接条目一律不动。
+    """
+    if not (store.is_dir() and not store.is_symlink()):
+        return
+    store_names = {d.name for d in disk_skills(store)[0]}
+    real_dirs: list[Path] = []
+    for d in agent_dirs:
+        info = describe(d)
+        if info["is_link"] or not info["exists"]:
+            continue  # 整目录链消费端或未安装的 Agent
+        real_dirs.append(d)
+    if not real_dirs:
+        return
+    relinked = removed = failed = 0
+    for d in real_dirs:
+        try:
+            entries = sorted(d.iterdir())
+        except OSError:
+            continue
+        for e in entries:
+            if e.name.startswith(".") or not e.is_symlink():
+                continue
+            if describe(e)["target_exists"]:
+                continue
+            try:
+                if e.name in store_names:
+                    e.unlink()
+                    e.symlink_to(store.resolve() / e.name)
+                    report.add("PASS", check,
+                               f"{d.name}/{e.name}：已重链 -> store（原目标已失效）")
+                    relinked += 1
+                else:
+                    e.unlink()
+                    report.add("PASS", check,
+                               f"{d.name}/{e.name}：目标已不存在且 store 无同名 skill，已摘除")
+                    removed += 1
+            except OSError as ex:
+                report.add("FAIL", check, f"{d.name}/{e.name}：修复失败：{ex}")
+                failed += 1
+    if relinked or removed or failed:
+        report.add("FAIL" if failed else "PASS", check,
+                   f"Agent 目录失效链接汇总：重链 {relinked} 个，摘除 {removed} 个"
+                   + (f"，失败 {failed} 个" if failed else ""))
+    else:
+        report.add("PASS", check,
+                   f"{len(real_dirs)} 个真实目录型 Agent 目录内无失效逐 skill 链接")
+
+
+def _gitignore_missing_entries(git_root: Path) -> list[str]:
+    """返回尚缺的推荐 ignore 条目。
+
+    字面已存在（容忍尾斜杠差异）或对应镜像路径已被其他规则 ignore
+    （git check-ignore 探测）均视为已覆盖。
+    """
+    covered: set[str] = set()
+    gi = git_root / ".gitignore"
+    if gi.is_file():
+        try:
+            for line in gi.read_text(encoding="utf-8").splitlines():
+                s = line.strip()
+                if s and not s.startswith("#"):
+                    covered.add(s.rstrip("/"))
+        except OSError:
+            pass
+    missing: list[str] = []
+    for s in GITIGNORE_SUGGESTIONS:
+        base = s.rstrip("/")
+        if base in covered:
+            continue
+        if git_check_ignored(git_root, f"{base}/skills"):
+            continue
+        missing.append(s)
+    return missing
+
+
+def autofix_project(project_root: Path, report: Report,
+                    check: str = "autofix") -> None:
+    """--autofix（项目模式）：补齐 .gitignore 推荐条目 + 取消跟踪非源头
+    skill 目录。先补 ignore 再取消跟踪，untrack 后的文件立即被规则覆盖。"""
+    top = git_toplevel(project_root)
+    if top is None:
+        report.add("PASS", check, "项目不在 git 仓库中，无需 .gitignore / 取消跟踪修复")
+        return
+    rel_prefix = git_rel_prefix(project_root, top)
+    acted = failed = 0
+
+    missing = _gitignore_missing_entries(top)
+    if missing:
+        gi = top / ".gitignore"
+        try:
+            existing = gi.read_text(encoding="utf-8") if gi.is_file() else ""
+            if existing and not existing.endswith("\n"):
+                existing += "\n"
+            existing += ("\n" if existing else "") \
+                + "# agent skill mirrors (added by skills-doctor --autofix)\n" \
+                + "\n".join(missing) + "\n"
+            gi.write_text(existing, encoding="utf-8")
+            report.add("PASS", check,
+                       f".gitignore 已补齐 {len(missing)} 条推荐条目",
+                       _trunc(missing) + f" | 文件：{_abbr(str(gi))}")
+            acted += 1
+        except OSError as e:
+            report.add("FAIL", check, f".gitignore 补齐失败：{e}")
+            failed += 1
+
+    for rel in discover_project_mirror_dirs(project_root):
+        grel = to_git_rel(rel_prefix, rel)
+        if not git_is_tracked(top, grel):
+            continue
+        code, _, err = _run_git(top, "rm", "-r", "--cached", "--", grel)
+        if code == 0:
+            report.add("PASS", check,
+                       f"{rel}：已取消 git 跟踪（工作区文件未动）",
+                       "待 git commit 生效；协作者 pull 后镜像目录会消失，"
+                       "需用 rf-skill-sync 重建本地链接")
+            acted += 1
+        else:
+            report.add("FAIL", check, f"{rel}：git rm -r --cached 失败：{err.strip()}")
+            failed += 1
+
+    if acted or failed:
+        report.add("FAIL" if failed else "PASS", check,
+                   f"项目 git 修复汇总：完成 {acted} 项"
+                   + (f"，失败 {failed} 项" if failed else ""))
+    else:
+        report.add("PASS", check, ".gitignore 已覆盖推荐条目，无非源头 skill 目录被跟踪")
 
 
 # ----------------------------- rendering -----------------------------
 ORDER = ["store", "symlink", "consistency", "lock", "reconcile", "skill-md", "junk",
-         "backups", "links", "duplicate", "sot", "fix"]
+         "backups", "links", "consumer-links", "duplicate", "sot", "fix", "autofix"]
 
 # 只影响人读的排版；JSON 的 check 字段仍是英文 slug
 CHECK_LABEL = {
@@ -784,9 +1113,11 @@ CHECK_LABEL = {
     "junk": "非 skill 条目",
     "backups": "force 备份",
     "links": "反向链接",
+    "consumer-links": "消费端内链",
     "duplicate": "重名检查",
     "sot": "单一事实源",
     "fix": "修复",
+    "autofix": "自动修复",
 }
 
 _ICON_COLOR = {"PASS": C.OK, "WARN": C.WARN, "FAIL": C.FAIL}
@@ -994,8 +1325,11 @@ def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(
         prog="skill_doctor.py",
         description="诊断本地 skill 管理模型（store + 软链接消费端 + lock 文件），"
-                    "或诊断某个项目的 .claude/skills（--project）。",
+                    "或诊断某个项目的 .claude/skills（--project）。"
+                    "--autofix 一键应用全部安全修复（含 --fix 与 --clean-backups）。",
     )
+    p.add_argument("--version", action="version",
+                   version=f"%(prog)s {SKILL_VERSION}")
     mode = p.add_mutually_exclusive_group()
     mode.add_argument("--project", nargs="?", const=".", default=None, metavar="PATH",
                       help="仅诊断 <PATH>/.claude/skills（默认当前目录）。项目 skill 由 git 管理、"
@@ -1010,13 +1344,23 @@ def build_parser() -> argparse.ArgumentParser:
                         "（默认 ~/.agents/skills）")
     p.add_argument("--consumers", default=None,
                    help="以逗号分隔的消费端路径，预期通过软链接指向 store"
-                        "（仅用户模式；默认 ~/.claude/skills,~/.zcode/skills）")
+                        "（仅用户模式；默认 ~/.claude/skills,~/.zcode/skills,~/.cursor/skills）")
+    p.add_argument("--agent-dirs", default=None,
+                   help="以逗号分隔的用户级 Agent skill 目录（仅用户模式；默认 "
+                        "~/.claude/skills,~/.zcode/skills,~/.codex/skills,~/.cursor/skills）。"
+                        "整目录链消费端自动跳过，只体检真实目录型目录内部的逐 skill 软链接")
     p.add_argument("--lock", default=None,
                    help="skill 管理器的 lock 文件（用户模式默认 ~/.agents/.skill-lock.json；"
                         "项目模式在存在时使用 <project>/.claude/.skill-lock.json）")
     p.add_argument("--json", action="store_true", dest="as_json", help="输出机器可读的 JSON")
     p.add_argument("--fix", action="store_true",
                    help="重建损坏或指向错误的消费端软链接，使其指向 store")
+    p.add_argument("--autofix", action="store_true", dest="autofix",
+                   help="一键应用全部安全修复（含 --fix 与 --clean-backups 的行为）："
+                        "重链消费端软链接、清理 lock 残留条目、对齐 SKILL.md name"
+                        "（仅真实目录，不写穿软链接）、删除 force 备份、修复 Agent 目录"
+                        "内失效逐 skill 链接；项目模式下补齐 .gitignore 并取消跟踪"
+                        "非源头 skill 目录。不可决断的问题仅保留指引")
     p.add_argument("--clean-backups", action="store_true", dest="clean_backups",
                    help="删除 skills-link --force 产生的 *.bak-<时间戳> 备份"
                         "（同名 skill 已存在才删，否则视为唯一副本跳过）")
@@ -1033,12 +1377,17 @@ def main(argv=None) -> int:
         lock = project_root / ".claude" / ".skill-lock.json"
         cross_store: Path | None = Path(args.store).expanduser() if args.store else DEFAULT_STORE
         report = Report()
-        if args.fix:
+        if args.fix and not args.autofix:
             # 项目模式没有消费端软链接，--fix 无可修复对象（SKILL.md：no-op）；
             # 不调用 apply_fix，避免对不存在的 .claude/skills 误报 FAIL
             report.add("PASS", "fix", "项目模式下无消费端软链接，--fix 无操作")
-        if args.clean_backups:
-            clean_backups(store, report)
+        if args.clean_backups or args.autofix:
+            clean_backups(store, report,
+                          check="autofix" if args.autofix else "backups")
+        if args.autofix:
+            prune_lock_stale(store, lock, report)
+            autofix_skill_md_names(store, report)
+            autofix_project(project_root, report)
         model = run(store, consumers, lock, report,
                     project_root=project_root, cross_store=cross_store)
         sections.append((model, report, f"项目（{_short(str(project_root))}）"))
@@ -1049,12 +1398,22 @@ def main(argv=None) -> int:
         else:
             consumers = list(DEFAULT_CONSUMERS)
         lock = Path(args.lock).expanduser() if args.lock else DEFAULT_LOCK
+        if args.agent_dirs is not None:
+            agent_dirs = [Path(d).expanduser() for d in args.agent_dirs.split(",") if d.strip()]
+        else:
+            agent_dirs = list(DEFAULT_AGENT_DIRS)
         report = Report()
-        if args.fix:
-            apply_fix(store, consumers, report)
-        if args.clean_backups:
-            clean_backups(store, report)
-        model = run(store, consumers, lock, report)
+        if args.fix or args.autofix:
+            apply_fix(store, consumers, report,
+                      check="autofix" if args.autofix else "fix")
+        if args.clean_backups or args.autofix:
+            clean_backups(store, report,
+                          check="autofix" if args.autofix else "backups")
+        if args.autofix:
+            prune_lock_stale(store, lock, report)
+            autofix_skill_md_names(store, report)
+            autofix_agent_dir_links(store, agent_dirs, report)
+        model = run(store, consumers, lock, report, agent_dirs=agent_dirs)
         sections.append((model, report, "用户级（全局 store）"))
         # auto project diagnosis for the cwd (skipped when absent, or when the
         # cwd's skills dir is the store itself — e.g. running from $HOME)
@@ -1063,9 +1422,14 @@ def main(argv=None) -> int:
             proj_skills = cwd / ".claude" / "skills"
             if proj_skills.is_dir() and proj_skills.resolve() != store.resolve():
                 preport = Report()
-                if args.clean_backups:
-                    # 与显式 --project 分支一致：先清理再诊断，check_backups 反映清理后状态
-                    clean_backups(proj_skills, preport)
+                if args.clean_backups or args.autofix:
+                    # 与显式 --project 分支一致：先修复再诊断，检查反映修复后状态
+                    clean_backups(proj_skills, preport,
+                                  check="autofix" if args.autofix else "backups")
+                if args.autofix:
+                    prune_lock_stale(proj_skills, cwd / ".claude" / ".skill-lock.json", preport)
+                    autofix_skill_md_names(proj_skills, preport)
+                    autofix_project(cwd, preport)
                 pmodel = run(proj_skills, [], cwd / ".claude" / ".skill-lock.json", preport,
                              project_root=cwd, cross_store=store)
                 sections.append((pmodel, preport, f"项目（{_short(str(cwd))}）"))

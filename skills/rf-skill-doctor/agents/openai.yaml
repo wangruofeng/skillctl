@@ -1,4 +1,4 @@
 interface:
   display_name: "Skill Doctor"
-  short_description: "Diagnose skill store, symlinks & lock-file health"
+  short_description: "Diagnose & safely autofix skill store, symlinks & lock-file health"
   default_prompt: "Use $rf-skill-doctor to run a full skill health check and report broken symlinks or lock-file drift."

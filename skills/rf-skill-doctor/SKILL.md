@@ -1,7 +1,7 @@
 ---
 name: rf-skill-doctor
-description: "诊断本地 skill 管理健康（全局仓与项目 .claude/skills）：软链接完整性、锁文件一致性、SKILL.md 规范检查、skills-link --force 备份检测与清理（--clean-backups）。用于 skill 健康检查/诊断、排查 skill 没生效/没同步/找不到、删除 .bak 备份。用法、参数与修复见正文。"
-version: 1.1.0
+description: "诊断本地 skill 管理健康（全局仓与项目 .claude/skills）：软链接完整性、锁文件一致性、SKILL.md 规范检查、skills-link --force 备份检测与清理（--clean-backups）、一键安全修复（--autofix）。用于 skill 健康检查/诊断、修复 skill 问题、排查 skill 没生效/没同步/找不到、删除 .bak 备份。用法、参数与修复见正文。"
+version: 1.3.0
 ---
 
 # Skill Doctor
@@ -9,7 +9,7 @@ version: 1.1.0
 Diagnose the local **single-store, multi-consumer** skill model. All paths are auto-detected and overridable, so the tool works on any equivalent layout, not just the one below.
 
 - **Store** (source of truth, real dir): `~/.agents/skills`
-- **Consumers** (mirrors via symlink): `~/.claude/skills`, `~/.zcode/skills` → store
+- **Consumers** (mirrors via symlink): `~/.claude/skills`, `~/.zcode/skills`, `~/.cursor/skills` → store
 - **Lock file** (skill manager): `~/.agents/.skill-lock.json`
 
 Project directories (`.claude/skills` inside a git repo) are a *different* model — but the default run diagnoses both: the global store first, then the cwd's project skills appended as a second section (see [Project mode](#project-mode---project)).
@@ -35,7 +35,9 @@ bash {baseDir}/scripts/install.sh --uninstall  # 卸载
 python3 scripts/skill_doctor.py            # global store + auto project check (cwd)
 python3 scripts/skill_doctor.py --json     # machine-readable JSON
 python3 scripts/skill_doctor.py --fix      # relink broken consumer symlinks -> store
+python3 scripts/skill_doctor.py --autofix  # 一键应用全部安全修复（含 --fix / --clean-backups）
 python3 scripts/skill_doctor.py --clean-backups  # 删除 skills-link --force 备份
+python3 scripts/skill_doctor.py --version  # 查看版本（与 SKILL.md frontmatter 同步）
 
 # SKILL.md 规范检查（必填 name / description / version）
 python3 scripts/check_skill_spec.py        # 自动发现 ./skills
@@ -50,7 +52,7 @@ python3 ~/.agents/skills/rf-skill-doctor/scripts/skill_doctor.py
 python3 ~/.agents/skills/rf-skill-doctor/scripts/check_skill_spec.py
 ```
 
-When invoked as a skill, run `scripts/skill_doctor.py` with no arguments first — it already covers the current project. Use `--json` only when feeding another tool, and `--fix` only when the user asks to repair. `--project` runs *only* the project part; `--no-project` restricts a default run to the global store. For frontmatter-only linting (name/description/version), run `scripts/check_skill_spec.py`.
+When invoked as a skill, run `scripts/skill_doctor.py` with no arguments first — it already covers the current project. Use `--json` only when feeding another tool, and `--fix` / `--autofix` only when the user asks to repair. `--project` runs *only* the project part; `--no-project` restricts a default run to the global store. For frontmatter-only linting (name/description/version), run `scripts/check_skill_spec.py`.
 
 ## What it checks
 
@@ -63,6 +65,7 @@ When invoked as a skill, run `scripts/skill_doctor.py` with no arguments first �
 5. **Per-skill validity** — each skill folder has a `SKILL.md` whose frontmatter parses and has non-empty `name` (hyphen-case) and `description`; `version` is optional (shown when present, never fails/warns if absent). `name` should match the directory name. Also flags non-skill junk entries (dotfile metadata like `.DS_Store` / manifests are ignored). For a stricter lint that **requires** `version`, use `scripts/check_skill_spec.py`.
 6. **Symlinked skill sources** — skill dirs inside the scanned dir that are themselves symlinks (reverse-link pattern, e.g. source lives in a separate repo). Healthy links pass and are surfaced; dangling ones fail. This is how a "real dir" store turns out not to be fully self-contained.
 7. **force backups** — leftover `*.bak-<14-digit timestamp>` entries created by `skills-link --force` (dir or file). WARN when found: they hold a stale copy and, because they contain a `SKILL.md`, agents load them as duplicate skills (they are excluded from the skill count / SKILL.md checks). Clean up with `--clean-backups`, which only deletes a backup whose same-named skill currently exists; if the name is gone the backup may be the only copy, so it is skipped with guidance.
+8. **consumer-dir per-skill links** (user mode) — real-dir agent skill dirs (`~/.codex/skills`, `~/.cursor/skills`, …) that can't be whole-dir symlinked (system skills must coexist) hold per-skill symlinks of their own; every one of them is checked for dangling targets. Whole-dir-symlink consumers (`~/.claude/skills`, `~/.zcode/skills`) are skipped — they follow their target and their link health is already covered by check 2. Override the scanned dirs with `--agent-dirs`.
 
 ## Project mode (--project)
 
@@ -100,6 +103,23 @@ Common interpretations:
 
 `--clean-backups` removes `skills-link --force` backups (`<name>.bak-<timestamp>`, user store and project `.claude/skills` alike). A backup is deleted only when the same-named skill exists at the same level (the link has taken over, the backup is obsolete); otherwise it is kept as the possible only copy and reported for manual handling.
 
+## Autofix (--autofix)
+
+`--autofix` applies **every safe, deterministic repair in one shot** — it subsumes `--fix` and `--clean-backups` (combining the flags is harmless: each action runs exactly once). All repairs run *before* the diagnosis, so the report reflects the post-fix state. Repairs, per scope:
+
+1. **Consumer symlink relink** — same as `--fix`.
+2. **Lock stale-entry pruning** — removes `skills` keys from the lock JSON whose skill dirs no longer exist on disk. The lock is backed up first as `<lock>.bak-<14-digit-ts>` (next to the lock, outside the store); other fields (`version` …) and key order are preserved.
+3. **SKILL.md name alignment** — when frontmatter `name` ≠ directory name, rewrites `name:` to the directory name (single-line, byte-precise replacement inside the frontmatter block; CRLF preserved). **Real directories only** — symlinked skill dirs (reverse-link pattern) are never written through, because the store link name is not guaranteed to equal the source dir name; they get a guidance WARN with the source path instead. The original file is backed up as `SKILL.md.bak-<ts>` next to it.
+4. **force-backup cleanup** — same as `--clean-backups`.
+5. **Dangling per-skill links in real agent dirs** — inside real-dir agent dirs (`~/.codex/skills`, …): a dangling link whose same-named skill exists in the store is relinked to it; one whose target is gone *and* has no store sibling is removed (no data can be lost — the target no longer exists).
+6. **Project-mode git repairs** (explicit `--project` and the auto cwd project section alike) — first appends missing recommended entries (`.codex/`, `.cursor/`, `.zcode/`, `.agents/`) to the repo-toplevel `.gitignore` (idempotent; entries already covered by other ignore patterns are detected via `git check-ignore` and skipped), then untracks any tracked non-source skill dir with `git rm -r --cached` (working-tree files untouched; the staged removal takes effect on commit, and collaborators lose the mirror dirs on pull — they rebuild via rf-skill-sync).
+
+**Never touched** (guidance-only, these are the WARN/FAIL items that remain after `--autofix`): real-dir consumers, invalid lock JSON, dual-source duplicate copies, junk entries, a source-ignored `.claude/skills`, symlinked-dir name mismatches (reason above), and FAIL-level SKILL.md problems (missing frontmatter / `name` / `description` — synthesizing content is out of scope).
+
+**Idempotent**: every action's trigger predicate (link already correct, no stale keys, name already equal, no `.bak`, entries already present, already untracked) is false on a second run — re-running yields PASS no-ops only. Backups (`.bak-<ts>` beside the lock and each edited `SKILL.md`) are yours to delete after verifying.
+
+`--version` prints the script version; keep `SKILL_VERSION` in the script and this file's frontmatter `version` in sync (same commit).
+
 ## Overrides
 
 ```text
@@ -107,7 +127,10 @@ Common interpretations:
 --no-project         skip the automatic cwd project check in the default run
 --store PATH         user mode: real store dir; project mode / auto project section:
                      cross-reference store (default ~/.agents/skills)
---consumers a,b,c    consumer paths, user mode only (default ~/.claude/skills,~/.zcode/skills)
+--consumers a,b,c    consumer paths, user mode only (default ~/.claude/skills,~/.zcode/skills,~/.cursor/skills)
+--agent-dirs a,b,c   user-level agent skill dirs scanned for internal per-skill symlink
+                     health, user mode only (default ~/.claude/skills,~/.zcode/skills,
+                     ~/.codex/skills,~/.cursor/skills); whole-dir-symlink dirs are skipped
 --lock PATH          lock file (user mode; default ~/.agents/.skill-lock.json; project mode
                      always uses <project>/.claude/.skill-lock.json)
 ```
