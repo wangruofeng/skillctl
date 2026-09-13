@@ -1,6 +1,6 @@
 ---
 name: rf-skill-doctor
-description: "诊断本地 skill 管理健康（全局仓与项目 .claude/skills）：软链接完整性、锁文件一致性、SKILL.md 规范检查、skills-link --force 备份检测与清理（--clean-backups）、一键安全修复（--autofix）。用于 skill 健康检查/诊断、修复 skill 问题、排查 skill 没生效/没同步/找不到、删除 .bak 备份。用法、参数与修复见正文。"
+description: "诊断或修复本地 Skill 的软链接、锁文件和 SKILL.md 规范问题。用户要求 Skill 健康检查、排障或清理备份时使用。"
 version: 1.3.0
 ---
 

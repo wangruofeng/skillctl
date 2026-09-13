@@ -1,6 +1,6 @@
 ---
 name: rf-skill-link
-description: "将 skill 仓库（skills/、.claude/skills/、根下平铺、或仓库根本身即单个 skill）下的所有 skill 软链接到统一目录（默认 ~/.agents/skills），多仓库 skill 一处汇聚。用于把仓库下的 skill 链接到用户目录/全局 skill 目录，如「把 XX 仓库的 skill 链接到 ~/.agents/skills」「把 web-access 链接到全局」。幂等可重跑，自动清理指向本仓库的失效链接。用法与参数见正文。"
+description: "把指定 Skill 仓库软链接到全局 ~/.agents/skills。用户明确要求链接或汇聚 Skill 仓库时使用。"
 version: 1.3.0
 ---
 

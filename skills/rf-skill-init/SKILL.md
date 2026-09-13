@@ -1,6 +1,6 @@
 ---
 name: rf-skill-init
-description: "初始化项目的 skill 环境与 Agent 文档：以 .claude/skills 为基准，创建 .zcode/.codex 等目录并软链接，同时统一 CLAUDE.md / AGENTS.md（都缺失则创建并链接；仅 AGENTS.md 存在则以其内容创建 CLAUDE.md；内容一致以 CLAUDE.md 为准；不一致时选择保留方，另一方软链接过去）。新项目搭建 skill 环境时使用，细节见正文。"
+description: "初始化项目级 Skill 目录及 CLAUDE.md/AGENTS.md 链接。用户明确要求为项目搭建多 Agent Skill 环境时使用。"
 version: 1.2.0
 ---
 

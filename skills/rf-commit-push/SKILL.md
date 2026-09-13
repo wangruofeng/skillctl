@@ -1,6 +1,6 @@
 ---
 name: rf-commit-push
-description: "git 提交并推送代码：分析改动、生成规范 commit message、暂存、提交、推送。涉及「提交代码」「commit」「push」时使用。"
+description: "审查指定改动、创建 git commit 并推送。仅当用户明确同时要求 commit 和 push 时使用。"
 version: 1.0.0
 ---
 
@@ -40,7 +40,7 @@ version: 1.0.0
 - **scope**：可选，标识影响范围（模块/组件名）
 - 改动较多但同主题，用一句概括 subject + body 分点说明；改动跨越多个不相关主题，**建议用户拆成多次提交**而不是混在一起
 
-**直接用生成的 message 提交，不向用户确认。** 此 skill 的目标是**最快完成提交推送**，全程不停顿等待确认。
+用户已明确要求 commit 和 push 时，可直接使用基于实际 diff 生成的 message；如果提交范围不清或包含无关改动，先停下确认目标文件。
 
 ## 2. 暂存（stage）
 
@@ -81,4 +81,4 @@ git push -u origin <branch>       # 当前分支无上游时，设置并推送
 
 `看 diff → 扫敏感文件 → 拟 message → 按需 add → commit → (确认上游) push → 报告结果`
 
-> 整个流程**不停顿、不等待用户确认**，一口气执行到底（敏感文件除外）。
+> 用户明确要求 commit 和 push 即授权正常暂存、提交并推送目标改动；遇到目标范围不清、敏感文件、force push 或其他高风险操作时停止并询问。
